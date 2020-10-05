@@ -121,6 +121,15 @@ class Nicappstock {
 		 * side of the site.
 		 */
 		require_once plugin_dir_path( dirname( __FILE__ ) ) . 'public/class-nicappstock-public.php';
+		
+		/**
+		 * WooCommerce API - PHP Client
+		 */
+		require_once plugin_dir_path(dirname(__FILE__)) . 'vendor/autoload.php';
+		
+		/*
+		 * 
+		 */
 
 		$this->loader = new Nicappstock_Loader();
 
