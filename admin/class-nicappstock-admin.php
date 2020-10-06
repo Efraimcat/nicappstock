@@ -61,7 +61,8 @@ class Nicappstock_Admin {
 		add_filter('manage_nicappstockproducts_posts_columns', array( $this, 'nicappstockproduct_columns'));
 		add_action('manage_nicappstockproviders_posts_custom_column', array( $this, 'fill_nicappstockproviders_columns' ), 10, 2);
 		add_action('manage_nicappstockproducts_posts_custom_column', array( $this, 'fill_nicappstockproducts_columns' ), 10, 2);
-		
+		add_filter('cron_schedules', array( $this, 'nicappcrono_cron_schedules' ));
+		add_action('admin_init', array( $this, 'CheckNewSchedule' ));
 	}
 
 	/**
@@ -85,7 +86,114 @@ class Nicappstock_Admin {
 		wp_enqueue_script( $this->plugin_name, plugin_dir_url( __FILE__ ) . 'js/nicappstock-admin.js', array( 'jquery' ), $this->version, false );
 
 	}
+	
+	/**
+	 * Register the Cron Job.
+	 *
+	 * @since 1.0.0
+	 * @access public
+	 * @param
+	 *            void
+	 *
+	 */
+	public function nicappstockCron()
+	{
+	    $this->nicappstockMaintenance();
+//	    $this->UpdateMasterCalendar();
+	}
 
+	/**
+	 * Register the Cron Job Schedule.
+	 *
+	 * @since 1.0.3
+	 * @access public
+	 * @param
+	 *            void
+	 *
+	 */
+	public function nicappstock_cron_schedules( $schedules )
+	{
+	    $interval = get_option( $this->plugin_name . '_ScheduleInterval' );
+	    if ( $interval < 1 ) $interval = 60;
+	    if (!isset ($schedules["nicappstockCronSchedule"]) ){
+	        $schedules["nicappstockCronSchedule"] = array(
+	            'interval' => 60*$interval,
+	            'display' => __('Every', $this->plugin_name) . ' ' . $interval . ' ' . __('minutes', $this->plugin_name));
+	    }
+	    return $schedules;
+	}
+	
+	/**
+	 * Utility: scheduled job timestamp.
+	 *
+	 * @since 1.0.0
+	 * @access private
+	 * @param
+	 *            void
+	 *
+	 */
+	private function scheduledJob()
+	{
+	    if (wp_next_scheduled('nicappstockCronJob')) {
+	        $date_format = get_option('date_format');
+	        $time_format = get_option('time_format');
+	        esc_html_e(wp_date("{$date_format} {$time_format}", wp_next_scheduled('nicappstockCronJob'), get_option('timezone_string')));
+	    } else {
+	        _e('No scheduled jobs. No calendar entries will be checked.', $this->plugin_name);
+	    }
+	}
+	
+	/**
+	 * Check New Schedule Interval
+	 *
+	 * @since 1.0.3
+	 * @access public
+	 * @param
+	 *            void
+	 *
+	 */
+	public function CheckNewSchedule()
+	{
+	    if (isset($_POST['NewScheduleInterval'])) {
+	        $NewScheduleInterval = (int)$_POST['NewScheduleInterval'];
+	        if ( $NewScheduleInterval < 1 || $NewScheduleInterval > 60*12 ){
+	            $type = 'error';
+	            $message = __( 'ERROR. Incorrect Interval', $this->plugin_name );
+	        }else{
+	            update_option( $this->plugin_name . '_ScheduleInterval', $_POST['NewScheduleInterval'] );
+	            add_filter( ‘cron_schedules’, array( $this, ‘nicappstock_cron_job_recurrence’ ) );
+	            wp_clear_scheduled_hook('nicappstockCronJob');
+	            wp_schedule_event(time(), 'nicappstockCronSchedule', 'nicappstockCronJob');
+	            $type = 'updated';
+	            $message = __( 'Successfully updated', $this->plugin_name ) . ' to ' . $NewScheduleInterval . ' ' . __( 'minutes', $this->plugin_name );
+	        }
+	        add_settings_error(
+	            'NewScheduleInterval',
+	            esc_attr( 'settings_updated' ),
+	            $message,
+	            $type
+	            );
+	    }
+	}
+	
+	/**
+	 * New Schedule Interval
+	 *
+	 * @since 1.0.3
+	 * @access public
+	 * @param
+	 *            void
+	 *
+	 */
+	public function nicappstock_cron_job_recurrence( $schedules ){
+	    $interval = 60*(int)get_option( $this->plugin_name . '_ScheduleInterval' );
+	    $schedules[ 'nicappstockCronSchedule' ] = array(
+	        'interval' => $interval,
+	        'display' => __('Every', $this->plugin_name) . get_option( $this->plugin_name . '_ScheduleInterval' ) . __('minutes', $this->plugin_name),
+	    );
+	    return $schedules;
+	}
+	
 	/**
 	 * Register Custom post types.
 	 *
@@ -453,7 +561,6 @@ class Nicappstock_Admin {
 	 */
 	public function nicappstockproduct_columns( $columns ){
 	    return array(
-	        'ProductID' => __('ID', $this->plugin_name),
 	        'Product' => __('Product', $this->plugin_name),
 	        'ProductSKU' => __('Product SKU', $this->plugin_name),
 	        'VariantSKU' => __('Variant SKU', $this->plugin_name),
@@ -497,14 +604,16 @@ class Nicappstock_Admin {
 	 */
 	public function fill_nicappstockproducts_columns( $column, $postID ){
 	    switch ( $column ) {
-	        case 'ProductID':
-	            esc_html_e( $postID );
-	            break;
 	        case 'Product':
 	            _e( get_the_title( $postID ) );
 	            break;
 	        case 'ProductSKU':
-	            esc_html_e( get_post_meta($postID, $this->plugin_name . '_ProductSKU', true) );
+	            $ProductSKU = get_post_meta($postID, $this->plugin_name . '_ProductSKU', true);
+	            esc_html_e( $ProductSKU );
+	            if( (int)$ProductSKU > 0 ){
+	               $int = wc_get_product_id_by_sku( $ProductSKU );
+	               ( $int > 0 ) ? _e('') : _e('!');
+	            }
 	            break;
 	        case 'VariantSKU':
 	            esc_html_e( get_post_meta($postID, $this->plugin_name . '_VariantSKU', true) );
@@ -523,7 +632,6 @@ class Nicappstock_Admin {
 	            break;
 	    }
 	}
-	
 	
 	/**
 	 * Custom Post Type Metabox Render fields.
@@ -546,18 +654,16 @@ class Nicappstock_Admin {
 	            if ($args['subtype'] != 'checkbox') {
 	                $prependStart = (isset($args['prepend_value'])) ? '<div class="input-prepend"> <span class="add-on">' . $args['prepend_value'] . '</span>' : '';
 	                $prependEnd = (isset($args['prepend_value'])) ? '</div>' : '';
-	                if ($args['id'] == 'nicappcrono_AuthorizationPageId')
-	                    $prependEnd = ' ' . get_the_title($value) . '</div>';
-	                    $step = (isset($args['step'])) ? 'step="' . $args['step'] . '"' : '';
-	                    $min = (isset($args['min'])) ? 'min="' . $args['min'] . '"' : '';
-	                    $max = (isset($args['max'])) ? 'max="' . $args['max'] . '"' : '';
-	                    $size = (isset($args['size'])) ? 'size="' . $args['size'] . '"' : 'size="40"';
-	                    if (isset($args['disabled'])) {
+                    $step = (isset($args['step'])) ? 'step="' . $args['step'] . '"' : '';
+                    $min = (isset($args['min'])) ? 'min="' . $args['min'] . '"' : '';
+                    $max = (isset($args['max'])) ? 'max="' . $args['max'] . '"' : '';
+                    $size = (isset($args['size'])) ? 'size="' . $args['size'] . '"' : 'size="40"';
+                    if (isset($args['disabled'])) {
 	                        // hide the actual input bc if it was just a disabled input the informaiton saved in the database would be wrong - bc it would pass empty values and wipe the actual information
-	                        echo $prependStart . '<input type="' . $args['subtype'] . '" id="' . $args['id'] . '_disabled" ' . $step . ' ' . $max . ' ' . $min . ' name="' . $args['name'] . '_disabled" ' . $size . ' disabled value="' . esc_attr($value) . '" /><input type="hidden" id="' . $args['id'] . '" ' . $step . ' ' . $max . ' ' . $min . ' name="' . $args['name'] . '" size="40" value="' . esc_attr($value) . '" />' . $prependEnd;
-	                    } else {
-	                        echo $prependStart . '<input type="' . $args['subtype'] . '" id="' . $args['id'] . '" "' . $args['required'] . '" ' . $step . ' ' . $max . ' ' . $min . ' name="' . $args['name'] . '" ' . $size . ' value="' . esc_attr($value) . '" />' . $prependEnd;
-	                    }
+                        echo $prependStart . '<input type="' . $args['subtype'] . '" id="' . $args['id'] . '_disabled" ' . $step . ' ' . $max . ' ' . $min . ' name="' . $args['name'] . '_disabled" ' . $size . ' disabled value="' . esc_attr($value) . '" /><input type="hidden" id="' . $args['id'] . '" ' . $step . ' ' . $max . ' ' . $min . ' name="' . $args['name'] . '" size="40" value="' . esc_attr($value) . '" />' . $prependEnd;
+                    } else {
+                        echo $prependStart . '<input type="' . $args['subtype'] . '" id="' . $args['id'] . '" "' . $args['required'] . '" ' . $step . ' ' . $max . ' ' . $min . ' name="' . $args['name'] . '" ' . $size . ' value="' . esc_attr($value) . '" />' . $prependEnd;
+                    }
 	                    /* <input required="required" '.$disabled.' type="number" step="any" id="'.$this->plugin_name.'_cost2" name="'.$this->plugin_name.'_cost2" value="' . esc_attr( $cost ) . '" size="25" /><input type="hidden" id="'.$this->plugin_name.'_cost" step="any" name="'.$this->plugin_name.'_cost" value="' . esc_attr( $cost ) . '" /> */
 	            } else {
 	                $checked = ($value) ? 'checked' : '';
@@ -623,5 +729,189 @@ class Nicappstock_Admin {
             do_action('admin_notices', sanitize_text_field($_GET['error_message']));
         }
         require_once 'partials/' . $this->plugin_name . '-admin-import-display.php';
+    }
+    
+    /*
+     * 
+     * CHECK STOCK
+     * 
+     */
+    
+    
+    
+    /*
+     * 
+     * UTILITIES
+     * 
+     */
+
+    /**
+     * Upload File
+     *
+     * @since 1.0.0
+     * @access protected
+     * @param
+     *            void
+     *
+     */
+    private function UploadFile(){
+        if(isset($_POST['but_submit'])){
+            if($_FILES['file']['name'] != ''){
+                $uploadedfile = $_FILES['file'];
+                $upload_overrides = array( 'test_form' => false );
+                
+                $movefile = wp_handle_upload( $uploadedfile, $upload_overrides );
+                /*
+                 * Array ( [file] => /var/www/replicantsfactory.com/datos/web/wp-content/uploads/DEBUTANT-HUPIT-maria-malo-variaciones-2.csv [url] => https://replicantsfactory.com/wp-content/uploads/DEBUTANT-HUPIT-maria-malo-variaciones-2.csv [type] => text/csv )
+                 */
+                $fileurl = "";
+                if ( $movefile && ! isset( $movefile['error'] ) ) {
+                    $this->ImportUploadFile( $movefile['file'] );
+                } else {
+                    esc_html_e( $movefile['error'] ) ;
+                }
+            }
+        }
+    }
+    
+    /**
+     * Upload File
+     *
+     * @since 1.0.0
+     * @access protected
+     * @param
+     *            void
+     *
+     */
+    private function ImportUploadFile( $filename ){
+        ?><h2><?php _e('Importing file', $this->plugin_name); ?></h2><?php esc_html_e( basename( $filename ) );
+		$info = pathinfo( $filename );
+		if ( $info['extension'] == 'csv'){
+			$open = fopen( $filename, "r" );
+			$the_big_array = [];
+		    while ( ( $data = fgetcsv( $open, 1000, "," ) ) !== FALSE) {
+                $the_big_array[] = $data;
+            }
+			fclose( $open );
+			foreach( $the_big_array as $fileline ){
+			    echo '<br/>' . $key . ' = ';
+			    print_r( $fileline );
+			    if ( $key == 0 ){
+			        
+			    }else{
+			        
+			    }
+			}
+		}else{
+		    ?><h2><?php esc_html_e( 'ERROR:' . ' ' . basename( $filename ) . ' ' . __('Invalid file type', $this->plugin_name) ); ?></h2><?php
+		}
+		unlink( $filename );
+    }
+    
+    /**
+     * Cron job maintenance tasks.
+     *
+     * @since 1.0.0
+     * @access protected
+     * @param
+     *            void
+     *
+     */
+    protected function nicappstockMaintenance()
+    {
+        $this->custom_logs('nicappstockMaintenance begins');
+        $upload_dir = wp_upload_dir();
+        $files = scandir( $upload_dir['basedir'] . '/nicappstock-logs' );
+        foreach ($files as $file) {
+            if (substr($file, - 4) == '.log') {
+                $this->custom_logs('Logfile: ' . $file . ' -> ' . date("d-m-Y H:i:s", filemtime( $upload_dir['basedir'] . '/nicappstock-logs/' . $file)));
+                if (time() > strtotime('+1 week', filemtime( $upload_dir['basedir'] . '/nicappstock-logs/' . $file))) {
+                    $this->custom_logs('Old logfile');
+                    unlink( $upload_dir['basedir'] . '/nicappstock-logs/' . $file);
+                }
+            }
+        }
+        $this->custom_logs('nicappstockMaintenance ends');
+        $this->custom_logs('---');
+        return;
+    }
+    
+    
+    /**
+     * Utility: log files.
+     *
+     * @since 1.0.0
+     * @access private
+     * @param
+     *            void
+     *
+     */
+    private function logFiles()
+    {
+        $upload_dir = wp_upload_dir();
+        $files = scandir( $upload_dir['basedir'] . '/nicappstock-logs' );
+        ?>
+			<form action="" method="post">
+				<ul>	
+					<?php foreach ( $files as $file ) { ?>
+						<?php if( substr( $file , -4) == '.log'){?>
+							<li><input type="radio" id="age[]" name="logfile" value="<?php esc_html_e( $file ); ?>">
+								<?php esc_html_e( $file . ' -> ' . date("d-m-Y H:i:s", filemtime( $upload_dir['basedir'] . '/nicappstock-logs/' . $file  ) ) ); ?>
+							</li>
+						<?php }?>
+					<?php }?>
+				</ul>
+				<div class="nicappstock-send-logfile">
+					<input type="submit" value="<?php _e( 'View log file', $this->plugin_name ); ?>">
+				</div>
+			</form>
+		<?php
+    }
+
+    /**
+     * Utility: show log file.
+     *
+     * @since 1.0.0
+     * @access private
+     * @param
+     *            void
+     *            
+     */
+    private function ShowLogFile()
+    {
+        $upload_dir = wp_upload_dir();
+        if (isset($_POST['logfile'])) {
+            ?>
+				<hr />
+				<h3><?php esc_html_e( $_POST['logfile'] ); ?> </h3>
+				<textarea id="nicappstocklogfile" name="nicappstocklogfile" rows="30" cols="180" readonly>
+					<?php esc_html_e( ( file_get_contents( $upload_dir['basedir'] . '/nicappstock-logs/' . $_POST['logfile'] ) ) ); ?>
+				</textarea>
+			<?php
+        }
+    }
+    
+    /**
+     * Utility: create entry in the log file.
+     *
+     * @since 1.0.0
+     * @access private
+     * @param string|array $message
+     *
+     */
+    private function custom_logs($message){
+        $upload_dir = wp_upload_dir();
+        if (is_array($message)) {
+            $message = json_encode($message);
+        }
+        if (!file_exists( $upload_dir['basedir'] . '/nicappstock-logs') ) {
+            mkdir( $upload_dir['basedir'] . '/nicappstock-logs' );
+        }
+        $time = date("Y-m-d H:i:s");
+        $ban = "#$time: $message\r\n";
+        $file = $upload_dir['basedir'] . '/nicappstock-logs/nicappstock-log-' . date("Y-m-d") . '.log';
+        $open = fopen($file, "a");
+        $write = fputs($open, $ban);
+        fclose( $open );
     }
 }
