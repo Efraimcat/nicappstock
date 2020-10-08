@@ -99,7 +99,7 @@ class Nicappstock_Admin {
 	public function nicappstockCron()
 	{
 	    $this->nicappstockMaintenance();
-//	    $this->UpdateMasterCalendar();
+	    $this->nicappstockUpdateStock();
 	}
 
 	/**
@@ -737,7 +737,175 @@ class Nicappstock_Admin {
      * 
      */
     
+    /**
+     * Update Stock
+     *
+     * @since 1.0.0
+     * @access protected
+     * @param
+     *            void
+     */
+    public function nicappstockUpdateStock(){
+        global $post;
+        $time_from = new DateTime();
+        $this->custom_logs('nicappstockUpdateStock begins.');
+        $args = array(
+            'post_type' => 'nicappstockproducts',
+            'post_status' => 'publish',
+            'posts_per_page' => -1,
+            'orderby' => 'title',
+            'order' => 'ASC',
+        );
+        $loop = new WP_Query( $args ); 
+        while ( $loop->have_posts() ) : $loop->the_post(); 
+            $this->UpdateStockProduct( $post->ID );
+        endwhile;
+        wp_reset_postdata();
+        $timediff = $time_from->diff( new DateTime() );
+        $this->custom_logs('nicappstockUpdateStock time: ' . $timediff->format( '%h hours %i minutes %s seconds' ));
+        $this->custom_logs('nicappstockUpdateStock ends.');
+        $this->custom_logs('---');
+    }
     
+    /**
+     * Update Stock Product
+     *
+     * @since 1.0.0
+     * @access protected
+     * @param
+     *            void
+     */
+    private function UpdateStockProduct( $postID ){
+        if( empty( get_post_meta( $postID, $this->plugin_name . '_ProviderID', true ) ) || 
+            empty( get_post_meta( $postID, $this->plugin_name . '_ProductSKU', true ) ) || 
+            empty( get_post_meta( $postID, $this->plugin_name . '_ProviderProductSKU', true )) ) return;
+        if( empty( get_post_meta( get_post_meta( $postID, $this->plugin_name . '_ProviderID', true ), $this->plugin_name . '_providerURL', true ) ) || 
+            empty( get_post_meta( get_post_meta( $postID, $this->plugin_name . '_ProviderID', true ), $this->plugin_name . '_consumerKey', true ) ) || 
+            empty( get_post_meta( get_post_meta( $postID, $this->plugin_name . '_ProviderID', true ), $this->plugin_name . '_consumerSecret', true ) ) ) return;
+        if( empty( get_post_meta( $postID, $this->plugin_name . '_ProviderVariantSKU', true ) ) ){
+            $this->UpdateStockProductSimple( $postID );
+        }else{
+            $this->UpdateStockProductVariant( $postID );
+        }
+    }
+
+    /**
+     * Update Stock Product Simple
+     *
+     * @since 1.0.0
+     * @access protected
+     * @param
+     *            void
+     */
+    private function UpdateStockProductSimple( $postID ){
+        $this->custom_logs('UpdateStockProductSimple. ' . $postID . ' : ' . get_the_title( $postID ) );
+        $this->woocommerce = new Automattic\WooCommerce\Client(
+            get_post_meta( get_post_meta( $postID, $this->plugin_name . '_ProviderID', true ), $this->plugin_name . '_providerURL', true ),
+            get_post_meta( get_post_meta( $postID, $this->plugin_name . '_ProviderID', true ), $this->plugin_name . '_consumerKey', true ),
+            get_post_meta( get_post_meta( $postID, $this->plugin_name . '_ProviderID', true ), $this->plugin_name . '_consumerSecret', true ),
+            [ 'wp_api' => true, 'version' => 'wc/v2', ]
+        );
+        $results = $this->woocommerce->get('products', ['sku' => get_post_meta( $postID, $this->plugin_name . '_ProductSKU', true )] );
+        if( empty( $results ) ) {
+            $this->custom_logs('UpdateStockProductSimple. ERROR: Provider non existing product.' );
+            return;
+        }
+        if( empty( $VariantSKU ) ){ //local product is not a variantion
+            $this->UpdateProductSingle( $ProductSKU, $results[0]['stock_quantity'] );
+        }else{
+            $this->UpdateProductVariant( $VariantSKU, $results[0]['stock_quantity'] );
+        }
+    }
+    
+    /**
+     * Update Stock Product Variant
+     *
+     * @since 1.0.0
+     * @access protected
+     * @param
+     *            void
+     */
+    private function UpdateStockProductVariant( $postID ){
+        $this->custom_logs('UpdateStockProductVariant. ' . $postID . ' : ' . get_the_title( $postID ) );
+        $this->woocommerce = new Automattic\WooCommerce\Client(
+            get_post_meta( get_post_meta( $postID, $this->plugin_name . '_ProviderID', true ), $this->plugin_name . '_providerURL', true ),
+            get_post_meta( get_post_meta( $postID, $this->plugin_name . '_ProviderID', true ), $this->plugin_name . '_consumerKey', true ),
+            get_post_meta( get_post_meta( $postID, $this->plugin_name . '_ProviderID', true ), $this->plugin_name . '_consumerSecret', true ),
+            [ 'wp_api' => true, 'version' => 'wc/v2', ]
+            );
+        try {
+            $results = $this->woocommerce->get('products', ['sku' => get_post_meta( $postID, $this->plugin_name . '_ProductSKU', true )] );
+        } catch (HttpClientException $e) {
+            $this->custom_logs('UpdateStockProductVariant ERROR. ' . $e->getMessage() );
+            return;
+            //echo '<pre><code>' . print_r( $e->getMessage(), true ) . '</code><pre>'; // Error message.
+        }
+        $ProviderProductID = $results[0]['id'];
+        if( empty( $ProviderProductID ) ){
+            $this->custom_logs('UpdateStockProductVariant. ERROR: Provider non existing product.' );
+            return;
+        }
+        try {
+            $variations = $this->woocommerce->get('products/' . $ProviderProductID . '/variations' );
+        } catch (HttpClientException $e) {
+            $this->custom_logs('UpdateStockProductVariant variants ERROR. ' . $e->getMessage() );
+            return;
+        }
+        if( empty( $variations ) ) {
+            $this->custom_logs('UpdateStockProductVariant. ERROR: Provider non existing variant.' );
+            return;
+        }
+        foreach( $variations as $variation ){
+            if( $variation['sku'] == $ProviderVariantSKU ){
+                if( empty( $VariantSKU ) ){ //local product is not a variantion
+                    $this->UpdateProductSingle( $ProductSKU, $variation['stock_quantity'] );
+                }else{
+                    $this->UpdateProductVariant( $VariantSKU, $variation['stock_quantity'] );
+                }
+            }
+        }
+    }
+    
+    /**
+     * Update Stock Variant
+     *
+     * @since 1.0.0
+     * @access protected
+     * @param
+     *            void
+     */
+    private function UpdateProductVariant( $VariantSKU, $stock_quantity ){
+        $variation_id = wc_get_product_id_by_sku( $VariantSKU );
+        $product_id = wp_get_post_parent_id( $variation_id );
+        if( $product_id == 0){
+            $this->custom_logs('UpdateStockProductVariant. ERROR: Local non existing product.' );
+            return;
+        }
+        $product = wc_get_product( $product_id );
+        $old_stock = $product->get_stock_quantity();
+        $product->set_stock_quantity( $stock_quantity);
+        $this->custom_logs('UpdateStockProductVariant. Changed From ' . $old_stock . ' To ' . $stock_quantity );
+    }
+    
+    /**
+     * Update Stock Single
+     *
+     * @since 1.0.0
+     * @access protected
+     * @param
+     *            void
+     */
+    private function UpdateProductSingle( $ProductSKU, $stock_quantity ){
+        $product_id = wc_get_product_id_by_sku( $ProductSKU );
+        if( $product_id == 0){
+            $this->custom_logs('UpdateStockProductSingle. ERROR: Local non existing product.' );
+            return;
+        }
+        $product = wc_get_product( $product_id );
+        $old_stock = $product->get_stock_quantity();
+        $product->set_stock_quantity( $stock_quantity);
+        $this->custom_logs('UpdateStockProductSingle. Changed From ' . $old_stock . ' To ' . $stock_quantity );
+    }
     
     /*
      * 
@@ -789,25 +957,125 @@ class Nicappstock_Admin {
 		if ( $info['extension'] == 'csv'){
 			$open = fopen( $filename, "r" );
 			$the_big_array = [];
+			$count = 0;
 		    while ( ( $data = fgetcsv( $open, 1000, "," ) ) !== FALSE) {
                 $the_big_array[] = $data;
             }
 			fclose( $open );
-			foreach( $the_big_array as $fileline ){
-			    echo '<br/>' . $key . ' = ';
-			    print_r( $fileline );
-			    if ( $key == 0 ){
-			        
-			    }else{
-			        
-			    }
+			$this->custom_logs('ImportUploadFile begins.');
+			foreach( $the_big_array as $key=>$fileline ){
+			    if ( $this->UploadFileLine( $key, $fileline ) ) $count++ ;
 			}
+			$this->custom_logs('ImportUploadFile ends. ' . $count . ' imports.' );
+			$this->custom_logs('---');
+			esc_html_e( ' ' . __('Entries Processed:', $this->plugin_name ) . ' ' . $count );
 		}else{
 		    ?><h2><?php esc_html_e( 'ERROR:' . ' ' . basename( $filename ) . ' ' . __('Invalid file type', $this->plugin_name) ); ?></h2><?php
 		}
 		unlink( $filename );
     }
-    
+
+    /**
+     * Explore Upload File Line
+     *
+     * @since 1.0.0
+     * @access protected
+     * @param
+     *            void
+     *
+     *  [0] Provider
+     *  [1] Product SKU
+     *  [2] Variant SKU
+     *  [3] Provider Product SKU
+     *  [4] Provider Variant SKU
+     *  [5] Title
+     *  Rest of columns ignored
+     */
+    private function UploadFileLine(  $key, $fileline ){
+        // first line with fields
+        if( $key == 0 ) return false;
+        // Empty Provider
+        if ( empty( sanitize_text_field( $fileline[0] ) ) ){
+            $this->custom_logs('UploadFileLine: ' . $key . ' -> Empty Provider' );
+            return false;
+        }
+        // Empty SKU
+        if ( empty( sanitize_text_field( $fileline[1] ) ) ){
+            $this->custom_logs('UploadFileLine: ' . $key . ' -> Empty SKU' );
+            return false;
+        }
+        // Empty Provider SKU
+        if ( empty( sanitize_text_field( $fileline[3] ) ) ){
+            $this->custom_logs('UploadFileLine: ' . $key . ' -> Empty Provider SKU' );
+            return false;
+        }
+        global $post;
+        $args = array(
+            'post_type'        => 'nicappstockproducts',
+            'order'            => 'ASC',
+            'orderby'          => 'meta_value',
+            'posts_per_page'   => -1,
+            'meta_query' => array(
+                'relation' => 'AND',
+                array(
+                    'key' => $this->plugin_name . '_ProductSKU',
+                    'value' => sanitize_text_field( $fileline[1] ),
+                    'compare' => '=',
+                ),
+                array(
+                    'key' => $this->plugin_name . '_VariantSKU',
+                    'value' => sanitize_text_field( $fileline[2] ),
+                    'compare' => '=',
+                ),
+                array(
+                    'key' => $this->plugin_name . '_ProviderID',
+                    'value' => sanitize_text_field( $fileline[0] ),
+                    'compare' => '=',
+                )
+            )
+        );
+        $the_query  = new WP_Query( $args );
+        if ( $the_query->have_posts() ) {
+            $this->custom_logs('UploadFileLine: ' . $key . ' -> Existing Product. Updating. SKU: ' . sanitize_text_field( $fileline[1] ) . ' Variant SKU: ' . sanitize_text_field( $fileline[2] ));
+            $the_query->the_post();
+            $post_update = array(
+                'ID'         => $post->ID,
+                'post_title' => sanitize_text_field( $fileline[5] )
+            );
+            wp_update_post( $post_update );
+            update_post_meta($post->ID, $this->plugin_name . '_ProductSKU', sanitize_text_field( $fileline[1] ));
+            update_post_meta($post->ID, $this->plugin_name . '_VariantSKU', sanitize_text_field( $fileline[2] ));
+            update_post_meta($post->ID, $this->plugin_name . '_ProviderProductSKU', sanitize_text_field( $fileline[3] ));
+            update_post_meta($post->ID, $this->plugin_name . '_ProviderVariantSKU', sanitize_text_field( $fileline[4] ));
+            update_post_meta($post->ID, $this->plugin_name . '_ProviderID', sanitize_text_field( $fileline[0] ));
+//
+//            echo '<br/>==>' . $post->ID;
+//
+        } else {
+            $this->custom_logs('UploadFileLine: ' . $key . ' -> Non Existing Product. Creating. SKU: ' . sanitize_text_field( $fileline[1] ) );
+            $post_arr = array(
+                'post_title'   => $fileline[5],
+                'post_status'   => 'publish',
+                'post_author'   => 1,
+                'post_type'     => 'nicappstockproducts',
+                'meta_input'   => array(
+                    $this->plugin_name . '_ProviderID' => sanitize_text_field( $fileline[0] ),
+                    $this->plugin_name . '_ProductSKU' => sanitize_text_field( $fileline[1] ),
+                    $this->plugin_name . '_VariantSKU' => sanitize_text_field( $fileline[2] ),
+                    $this->plugin_name . '_ProviderProductSKU' => sanitize_text_field( $fileline[3] ),
+                    $this->plugin_name . '_ProviderVariantSKU' => sanitize_text_field( $fileline[4] ),
+                ),
+            );
+            $post_id = wp_insert_post( $post_arr, $wp_error );
+//            
+//            echo '<br/>' . $key . ' = ' . $post_id . ' => ';
+//            print_r( $fileline );
+//            
+        }
+        wp_reset_postdata();
+        return true;
+    }
+        
     /**
      * Cron job maintenance tasks.
      *
