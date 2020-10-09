@@ -187,7 +187,7 @@ class Nicappstock_Admin {
 	 */
 	public function nicappstock_cron_job_recurrence( $schedules ){
 	    $interval = 60*(int)get_option( $this->plugin_name . '_ScheduleInterval' );
-	    $schedules[ 'nicappstockCronSchedule' ] = array(
+	    $schedules['nicappstockCronSchedule'] = array(
 	        'interval' => $interval,
 	        'display' => __('Every', $this->plugin_name) . get_option( $this->plugin_name . '_ScheduleInterval' ) . __('minutes', $this->plugin_name),
 	    );
@@ -545,6 +545,7 @@ class Nicappstock_Admin {
 	 */
 	public function nicappstockproviders_columns( $columns ){
 	    return array(
+	        'cb' => '<input type="checkbox" />',
 	        'provider' => __('Provider', $this->plugin_name),
 	        'URL' => __('URL', $this->plugin_name),
 	        'providerID' => __('Provider ID', $this->plugin_name),
@@ -561,6 +562,7 @@ class Nicappstock_Admin {
 	 */
 	public function nicappstockproduct_columns( $columns ){
 	    return array(
+	        'cb' => '<input type="checkbox" />',
 	        'Product' => __('Product', $this->plugin_name),
 	        'ProductSKU' => __('Product SKU', $this->plugin_name),
 	        'VariantSKU' => __('Variant SKU', $this->plugin_name),
@@ -805,15 +807,20 @@ class Nicappstock_Admin {
             get_post_meta( get_post_meta( $postID, $this->plugin_name . '_ProviderID', true ), $this->plugin_name . '_consumerSecret', true ),
             [ 'wp_api' => true, 'version' => 'wc/v2', ]
         );
-        $results = $this->woocommerce->get('products', ['sku' => get_post_meta( $postID, $this->plugin_name . '_ProductSKU', true )] );
+        try{
+            $results = $this->woocommerce->get('products', ['sku' => get_post_meta( $postID, $this->plugin_name . '_ProviderProductSKU', true )] );
+        } catch (Automattic\WooCommerce\HttpClient\HttpClientException $e) {
+            $this->custom_logs('UpdateStockProductsimple ERROR. ' . $e->getMessage() );
+            return;
+        }
         if( empty( $results ) ) {
             $this->custom_logs('UpdateStockProductSimple. ERROR: Provider non existing product.' );
             return;
         }
-        if( empty( $VariantSKU ) ){ //local product is not a variantion
-            $this->UpdateProductSingle( $ProductSKU, $results[0]['stock_quantity'] );
+        if( empty( get_post_meta( $postID, $this->plugin_name . '_ProviderVariantSKU', true ) ) ){ //local product is not a variantion
+            $this->UpdateProductSingle( get_post_meta( $postID, $this->plugin_name . '_ProductSKU', true ), $results[0]->stock_quantity );
         }else{
-            $this->UpdateProductVariant( $VariantSKU, $results[0]['stock_quantity'] );
+            $this->UpdateProductVariant( get_post_meta( $postID, $this->plugin_name . '_VariantSKU', true ), $results[0]->stock_quantity );
         }
     }
     
@@ -834,20 +841,19 @@ class Nicappstock_Admin {
             [ 'wp_api' => true, 'version' => 'wc/v2', ]
             );
         try {
-            $results = $this->woocommerce->get('products', ['sku' => get_post_meta( $postID, $this->plugin_name . '_ProductSKU', true )] );
-        } catch (HttpClientException $e) {
+            $results = $this->woocommerce->get('products', ['sku' => get_post_meta( $postID, $this->plugin_name . '_ProviderProductSKU', true )] );
+        } catch (Automattic\WooCommerce\HttpClient\HttpClientException $e) {
             $this->custom_logs('UpdateStockProductVariant ERROR. ' . $e->getMessage() );
             return;
-            //echo '<pre><code>' . print_r( $e->getMessage(), true ) . '</code><pre>'; // Error message.
         }
-        $ProviderProductID = $results[0]['id'];
+        $ProviderProductID = $results[0]->id;
         if( empty( $ProviderProductID ) ){
             $this->custom_logs('UpdateStockProductVariant. ERROR: Provider non existing product.' );
             return;
         }
         try {
             $variations = $this->woocommerce->get('products/' . $ProviderProductID . '/variations' );
-        } catch (HttpClientException $e) {
+        } catch (Automattic\WooCommerce\HttpClient\HttpClientException $e) {
             $this->custom_logs('UpdateStockProductVariant variants ERROR. ' . $e->getMessage() );
             return;
         }
@@ -856,11 +862,11 @@ class Nicappstock_Admin {
             return;
         }
         foreach( $variations as $variation ){
-            if( $variation['sku'] == $ProviderVariantSKU ){
-                if( empty( $VariantSKU ) ){ //local product is not a variantion
-                    $this->UpdateProductSingle( $ProductSKU, $variation['stock_quantity'] );
+            if( $variation->sku == get_post_meta( $postID, $this->plugin_name . '_ProviderVariantSKU', true ) ){
+                if( empty( get_post_meta( $postID, $this->plugin_name . '_VariantSKU', true ) ) ){ //local product is not a variantion
+                    $this->UpdateProductSingle( get_post_meta( $postID, $this->plugin_name . '_ProductSKU', true ), $variation->stock_quantity );
                 }else{
-                    $this->UpdateProductVariant( $VariantSKU, $variation['stock_quantity'] );
+                    $this->UpdateProductVariant( get_post_meta( $postID, $this->plugin_name . '_VariantSKU', true ), $variation->stock_quantity );
                 }
             }
         }
@@ -876,15 +882,15 @@ class Nicappstock_Admin {
      */
     private function UpdateProductVariant( $VariantSKU, $stock_quantity ){
         $variation_id = wc_get_product_id_by_sku( $VariantSKU );
-        $product_id = wp_get_post_parent_id( $variation_id );
-        if( $product_id == 0){
-            $this->custom_logs('UpdateStockProductVariant. ERROR: Local non existing product.' );
+        if( $variation_id == 0){
+            $this->custom_logs('UpdateProductVariant. ERROR: Local non existing product.' );
             return;
         }
-        $product = wc_get_product( $product_id );
+        $product = wc_get_product( $variation_id );
         $old_stock = $product->get_stock_quantity();
-        $product->set_stock_quantity( $stock_quantity);
-        $this->custom_logs('UpdateStockProductVariant. Changed From ' . $old_stock . ' To ' . $stock_quantity );
+        $product->set_stock_quantity( $stock_quantity );
+        $product->save();
+        $this->custom_logs('UpdateProductVariant. Changed From ' . $old_stock . ' To ' . $stock_quantity );
     }
     
     /**
@@ -898,13 +904,14 @@ class Nicappstock_Admin {
     private function UpdateProductSingle( $ProductSKU, $stock_quantity ){
         $product_id = wc_get_product_id_by_sku( $ProductSKU );
         if( $product_id == 0){
-            $this->custom_logs('UpdateStockProductSingle. ERROR: Local non existing product.' );
+            $this->custom_logs('UpdateProductSingle. ERROR: Local non existing product.' );
             return;
         }
         $product = wc_get_product( $product_id );
         $old_stock = $product->get_stock_quantity();
-        $product->set_stock_quantity( $stock_quantity);
-        $this->custom_logs('UpdateStockProductSingle. Changed From ' . $old_stock . ' To ' . $stock_quantity );
+        $product->set_stock_quantity( $stock_quantity );
+        $product->save();
+        $this->custom_logs('UpdateProductSingle. Changed From ' . $old_stock . ' To ' . $stock_quantity );
     }
     
     /*

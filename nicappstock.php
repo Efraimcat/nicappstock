@@ -16,7 +16,7 @@
  * Plugin Name:       Nic-app stock
  * Plugin URI:        nic-app.com
  * Description:       This is a short description of what the plugin does. It's displayed in the WordPress admin area.
- * Version:           0.1.02
+ * Version:           0.1.03
  * Author:            Efraim Bayarri
  * Author URI:        https://efraim.cat
  * License:           GPL-2.0+
@@ -35,7 +35,7 @@ if ( ! defined( 'WPINC' ) ) {
  * Start at version 1.0.0 and use SemVer - https://semver.org
  * Rename this for your plugin and update it as you release new versions.
  */
-define( 'NICAPPSTOCK_VERSION', '0.1.02' );
+define( 'NICAPPSTOCK_VERSION', '0.1.03' );
 
 require __DIR__ . '/vendor/autoload.php';
 use Automattic\WooCommerce\Client;
