@@ -61,7 +61,7 @@ class Nicappstock_Admin {
 		add_filter('manage_nicappstockproducts_posts_columns', array( $this, 'nicappstockproduct_columns'));
 		add_action('manage_nicappstockproviders_posts_custom_column', array( $this, 'fill_nicappstockproviders_columns' ), 10, 2);
 		add_action('manage_nicappstockproducts_posts_custom_column', array( $this, 'fill_nicappstockproducts_columns' ), 10, 2);
-		add_filter('cron_schedules', array( $this, 'nicappcrono_cron_schedules' ));
+		add_filter('cron_schedules', array( $this, 'nicappstock_cron_schedules' ));
 		add_action('admin_init', array( $this, 'CheckNewSchedule' ));
 	}
 
@@ -389,8 +389,6 @@ class Nicappstock_Admin {
 	    wp_nonce_field($this->plugin_name . '_products_meta_box', $this->plugin_name . '_products_meta_box_nonce');
 	    ?><div class="nicappstockproducts_containers"><?php
         ?><ul class="nicappstockproducts_data_metabox"><?php
-        
-        
         //
         ?><li><label for="<?php esc_html_e($this->plugin_name . '_ProductSKU' ); ?>"> <?php _e('Product SKU', $this->plugin_name);?></label> <?php
         $this->nicappstock_render_settings_field(array(
@@ -586,10 +584,13 @@ class Nicappstock_Admin {
 	public function fill_nicappstockproviders_columns( $column, $postID ){
 	    switch ( $column ) {
 	        case 'provider':
-	            _e( get_the_title( $postID ) );
+	            esc_html_e( get_the_title( $postID ) );
 	            break;
 	        case 'providerID':
 	            esc_html_e( $postID );
+	            break;
+	        case 'URL':
+	            esc_html_e( get_post_meta($postID, $this->plugin_name . '_providerURL', true) );
 	            break;
 	    }
 	}
@@ -607,14 +608,13 @@ class Nicappstock_Admin {
 	public function fill_nicappstockproducts_columns( $column, $postID ){
 	    switch ( $column ) {
 	        case 'Product':
-	            _e( get_the_title( $postID ) );
+	            esc_html_e( get_the_title( $postID ) );
 	            break;
 	        case 'ProductSKU':
-	            $ProductSKU = get_post_meta($postID, $this->plugin_name . '_ProductSKU', true);
-	            esc_html_e( $ProductSKU );
-	            if( (int)$ProductSKU > 0 ){
-	               $int = wc_get_product_id_by_sku( $ProductSKU );
-	               ( $int > 0 ) ? _e('') : _e('!');
+	            esc_html_e( get_post_meta($postID, $this->plugin_name . '_ProductSKU', true) );
+	            if( !empty( get_post_meta($postID, $this->plugin_name . '_ProductSKU', true) ) ){
+	                $product_id = wc_get_product_id_by_sku( get_post_meta($postID, $this->plugin_name . '_ProductSKU', true) );
+	                ( $product_id > 0 ) ? esc_html_e('') : esc_html_e('!');
 	            }
 	            break;
 	        case 'VariantSKU':
@@ -630,7 +630,8 @@ class Nicappstock_Admin {
 	            esc_html_e( get_post_meta($postID, $this->plugin_name . '_ProviderID', true) );
 	            break;
 	        case 'Provider':
-	            _e( get_the_title( get_post_meta($postID, $this->plugin_name . '_ProviderID', true) ) );
+	            if( !empty( get_post_meta($postID, $this->plugin_name . '_ProviderID', true) ))
+	                esc_html_e( get_the_title( get_post_meta($postID, $this->plugin_name . '_ProviderID', true) ) );
 	            break;
 	    }
 	}
@@ -746,6 +747,8 @@ class Nicappstock_Admin {
      * @access protected
      * @param
      *            void
+     *            
+     * Loops on all products.           
      */
     public function nicappstockUpdateStock(){
         global $post;
@@ -776,6 +779,7 @@ class Nicappstock_Admin {
      * @access protected
      * @param
      *            void
+     * Checks if product definition is consistent. Then sends the call to Simple or Variation update stock function.           
      */
     private function UpdateStockProduct( $postID ){
         if( empty( get_post_meta( $postID, $this->plugin_name . '_ProviderID', true ) ) || 
@@ -798,9 +802,9 @@ class Nicappstock_Admin {
      * @access protected
      * @param
      *            void
+     * Conects to provider, checks is product exists and get the stock quantity. Then passes the call to product stock change function.           
      */
     private function UpdateStockProductSimple( $postID ){
-        $this->custom_logs('UpdateStockProductSimple. ' . $postID . ' : ' . get_the_title( $postID ) );
         $this->woocommerce = new Automattic\WooCommerce\Client(
             get_post_meta( get_post_meta( $postID, $this->plugin_name . '_ProviderID', true ), $this->plugin_name . '_providerURL', true ),
             get_post_meta( get_post_meta( $postID, $this->plugin_name . '_ProviderID', true ), $this->plugin_name . '_consumerKey', true ),
@@ -818,9 +822,9 @@ class Nicappstock_Admin {
             return;
         }
         if( empty( get_post_meta( $postID, $this->plugin_name . '_ProviderVariantSKU', true ) ) ){ //local product is not a variantion
-            $this->UpdateProductSingle( get_post_meta( $postID, $this->plugin_name . '_ProductSKU', true ), $results[0]->stock_quantity );
+            $this->UpdateProduct( $postID, get_post_meta( $postID, $this->plugin_name . '_ProductSKU', true ), $results[0]->stock_quantity );
         }else{
-            $this->UpdateProductVariant( get_post_meta( $postID, $this->plugin_name . '_VariantSKU', true ), $results[0]->stock_quantity );
+            $this->UpdateProduct( $postID, get_post_meta( $postID, $this->plugin_name . '_VariantSKU', true ), $results[0]->stock_quantity );
         }
     }
     
@@ -831,9 +835,9 @@ class Nicappstock_Admin {
      * @access protected
      * @param
      *            void
+     * Conects to provider, checks is product exists and get the stock quantity. Then passes the call to product stock change function.
      */
     private function UpdateStockProductVariant( $postID ){
-        $this->custom_logs('UpdateStockProductVariant. ' . $postID . ' : ' . get_the_title( $postID ) );
         $this->woocommerce = new Automattic\WooCommerce\Client(
             get_post_meta( get_post_meta( $postID, $this->plugin_name . '_ProviderID', true ), $this->plugin_name . '_providerURL', true ),
             get_post_meta( get_post_meta( $postID, $this->plugin_name . '_ProviderID', true ), $this->plugin_name . '_consumerKey', true ),
@@ -854,7 +858,7 @@ class Nicappstock_Admin {
         try {
             $variations = $this->woocommerce->get('products/' . $ProviderProductID . '/variations' );
         } catch (Automattic\WooCommerce\HttpClient\HttpClientException $e) {
-            $this->custom_logs('UpdateStockProductVariant variants ERROR. ' . $e->getMessage() );
+            $this->custom_logs('UpdateStockProductVariant variations ERROR. ' . $e->getMessage() );
             return;
         }
         if( empty( $variations ) ) {
@@ -864,54 +868,34 @@ class Nicappstock_Admin {
         foreach( $variations as $variation ){
             if( $variation->sku == get_post_meta( $postID, $this->plugin_name . '_ProviderVariantSKU', true ) ){
                 if( empty( get_post_meta( $postID, $this->plugin_name . '_VariantSKU', true ) ) ){ //local product is not a variantion
-                    $this->UpdateProductSingle( get_post_meta( $postID, $this->plugin_name . '_ProductSKU', true ), $variation->stock_quantity );
+                    $this->UpdateProduct( $postID, get_post_meta( $postID, $this->plugin_name . '_ProductSKU', true ), $variation->stock_quantity );
                 }else{
-                    $this->UpdateProductVariant( get_post_meta( $postID, $this->plugin_name . '_VariantSKU', true ), $variation->stock_quantity );
+                    $this->UpdateProduct( $postID, get_post_meta( $postID, $this->plugin_name . '_VariantSKU', true ), $variation->stock_quantity );
                 }
             }
         }
     }
     
     /**
-     * Update Stock Variant
+     * Update Stock
      *
      * @since 1.0.0
      * @access protected
      * @param
      *            void
+     * updates product stocks.            
      */
-    private function UpdateProductVariant( $VariantSKU, $stock_quantity ){
-        $variation_id = wc_get_product_id_by_sku( $VariantSKU );
-        if( $variation_id == 0){
-            $this->custom_logs('UpdateProductVariant. ERROR: Local non existing product.' );
-            return;
-        }
-        $product = wc_get_product( $variation_id );
-        $old_stock = $product->get_stock_quantity();
-        $product->set_stock_quantity( $stock_quantity );
-        $product->save();
-        $this->custom_logs('UpdateProductVariant. Changed From ' . $old_stock . ' To ' . $stock_quantity );
-    }
-    
-    /**
-     * Update Stock Single
-     *
-     * @since 1.0.0
-     * @access protected
-     * @param
-     *            void
-     */
-    private function UpdateProductSingle( $ProductSKU, $stock_quantity ){
+    private function UpdateProduct( $postID, $ProductSKU, $stock_quantity ){
         $product_id = wc_get_product_id_by_sku( $ProductSKU );
         if( $product_id == 0){
-            $this->custom_logs('UpdateProductSingle. ERROR: Local non existing product.' );
+            $this->custom_logs('UpdateProduct. ERROR: Local non existing product.' );
             return;
         }
         $product = wc_get_product( $product_id );
         $old_stock = $product->get_stock_quantity();
         $product->set_stock_quantity( $stock_quantity );
         $product->save();
-        $this->custom_logs('UpdateProductSingle. Changed From ' . $old_stock . ' To ' . $stock_quantity );
+        $this->custom_logs('UpdateProduct: ' . $postID . ' : ' . get_the_title( $postID ). '. Changed From ' . $old_stock . ' To ' . $stock_quantity );
     }
     
     /*
@@ -936,10 +920,6 @@ class Nicappstock_Admin {
                 $upload_overrides = array( 'test_form' => false );
                 
                 $movefile = wp_handle_upload( $uploadedfile, $upload_overrides );
-                /*
-                 * Array ( [file] => /var/www/replicantsfactory.com/datos/web/wp-content/uploads/DEBUTANT-HUPIT-maria-malo-variaciones-2.csv [url] => https://replicantsfactory.com/wp-content/uploads/DEBUTANT-HUPIT-maria-malo-variaciones-2.csv [type] => text/csv )
-                 */
-                $fileurl = "";
                 if ( $movefile && ! isset( $movefile['error'] ) ) {
                     $this->ImportUploadFile( $movefile['file'] );
                 } else {
@@ -1055,9 +1035,6 @@ class Nicappstock_Admin {
             update_post_meta($post->ID, $this->plugin_name . '_ProviderProductSKU', sanitize_text_field( $fileline[3] ));
             update_post_meta($post->ID, $this->plugin_name . '_ProviderVariantSKU', sanitize_text_field( $fileline[4] ));
             update_post_meta($post->ID, $this->plugin_name . '_ProviderID', sanitize_text_field( $fileline[0] ));
-//
-//            echo '<br/>==>' . $post->ID;
-//
         } else {
             $this->custom_logs('UploadFileLine: ' . $key . ' -> Non Existing Product. Creating. SKU: ' . sanitize_text_field( $fileline[1] ) );
             $post_arr = array(
@@ -1073,16 +1050,52 @@ class Nicappstock_Admin {
                     $this->plugin_name . '_ProviderVariantSKU' => sanitize_text_field( $fileline[4] ),
                 ),
             );
-            $post_id = wp_insert_post( $post_arr, $wp_error );
-//            
-//            echo '<br/>' . $key . ' = ' . $post_id . ' => ';
-//            print_r( $fileline );
-//            
+            wp_insert_post( $post_arr );
         }
         wp_reset_postdata();
         return true;
     }
         
+    /**
+     * Download File
+     *
+     * @since 1.0.0
+     * @access protected
+     * @param
+     *            void
+     *
+     */
+    private function DownloadFile(){
+        if(isset($_POST['but_download'])){
+            $args = array(
+                'post_type' => 'nicappstockproducts',
+                'orderby' => $orderby,
+                'posts_per_page'=>-1,
+            );
+            $wp_query = new WP_Query($args);
+            $upload_dir = wp_upload_dir();
+            $file = $upload_dir['basedir'] . '/nicappstock-logs/nicappstock-download.csv';
+            unlink( $file );
+            $open = fopen( $file, "a" );
+            $message = 'ProviderID,ProductSKU,VariantSKU,ProviderProductSKU,ProviderVariantSKU,Name';
+            $ban = "$message\r\n";
+            fputs( $open, $ban );
+            while ($wp_query->have_posts()) : $wp_query->the_post();
+                $product_id = get_the_ID() ;
+                $message = get_post_meta($product_id, $this->plugin_name . '_ProviderID', true);
+                $message .= ',' . get_post_meta($product_id, $this->plugin_name . '_ProductSKU', true);
+                $message .= ',' . get_post_meta($product_id, $this->plugin_name . '_VariantSKU', true);
+                $message .= ',' . get_post_meta($product_id, $this->plugin_name . '_ProviderProductSKU', true);
+                $message .= ',' . get_post_meta($product_id, $this->plugin_name . '_ProviderVariantSKU', true);
+                $message .= ',' . get_the_title();
+                $ban = "$message\r\n";
+                fputs( $open, $ban );
+            endwhile;
+            fclose( $open );
+            wp_reset_query();
+        }
+    }
+    
     /**
      * Cron job maintenance tasks.
      *
@@ -1186,7 +1199,7 @@ class Nicappstock_Admin {
         $ban = "#$time: $message\r\n";
         $file = $upload_dir['basedir'] . '/nicappstock-logs/nicappstock-log-' . date("Y-m-d") . '.log';
         $open = fopen($file, "a");
-        $write = fputs($open, $ban);
+        fputs($open, $ban);
         fclose( $open );
     }
 }

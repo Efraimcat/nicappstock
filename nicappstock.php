@@ -1,22 +1,15 @@
 <?php
 
 /**
- * The plugin bootstrap file
- *
- * This file is read by WordPress to generate the plugin information in the plugin
- * admin area. This file also includes all of the dependencies used by the plugin,
- * registers the activation and deactivation functions, and defines a function
- * that starts the plugin.
- *
- * @link              https://efraim.cat
+ * @link              https://github.com/Efraimcat/nicappstock
  * @since             1.0.0
  * @package           Nicappstock
  *
  * @wordpress-plugin
  * Plugin Name:       Nic-app stock
  * Plugin URI:        nic-app.com
- * Description:       This is a short description of what the plugin does. It's displayed in the WordPress admin area.
- * Version:           0.1.03
+ * Description:       This plugin creates a relationship between the SKU of the local product of its variation and another product defined in another WooCommerce system and updates the local stock with which the supplier has.
+ * Version:           1.0.0
  * Author:            Efraim Bayarri
  * Author URI:        https://efraim.cat
  * License:           GPL-2.0+
@@ -35,7 +28,15 @@ if ( ! defined( 'WPINC' ) ) {
  * Start at version 1.0.0 and use SemVer - https://semver.org
  * Rename this for your plugin and update it as you release new versions.
  */
-define( 'NICAPPSTOCK_VERSION', '0.1.03' );
+define( 'NICAPPSTOCK_VERSION', '1.0.0' );
+
+/**
+ * Currently only php 7.1 and higher is supported
+ */
+if (version_compare(phpversion(), '7.1.0', '<')) {
+    // php version isn't high enough
+    die();
+}
 
 require __DIR__ . '/vendor/autoload.php';
 use Automattic\WooCommerce\Client;

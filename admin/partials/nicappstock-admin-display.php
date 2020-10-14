@@ -27,12 +27,17 @@
 		<p><?php _e( 'Nic-app Stock.', $this->plugin_name ); ?></p>
 		<p>
 			<?php _e( 'Configuration is an important part of proper operation and must be given the necessary attention. You can find all the necessary help in', $this->plugin_name ); ?>
-			<a
-				href="<?php esc_html_e( admin_url( 'admin.php?page=nicappstock-support', 'https' ) ); ?>"> <?php _e( 'the support tab', $this->plugin_name ); ?></a> <?php _e( 'or in', $this->plugin_name ); ?>
-			<a href="https://nic-app.com/nic-app-stock/" target="_blank"><?php _e( 'Nic-app Stock web page', $this->plugin_name )?></a>.
+			<a href="mailto:efraim@efraim.cat">efraim@efraim.cat</a>
 		</p>
 	</div>
 	<hr />
+	<div id="nicappstock-info">
+		<p><?php _e( 'This plugin creates a relationship between the SKU of the local product of its variation and another product defined in another WooCommerce system and updates the local stock with which the supplier has.', $this->plugin_name ); ?></p>
+		<p><?php _e( 'The connection is made through the WooCommerce REST API. You need to have a REST API key on the provider\'s system. You can find information in this document on how to create the key.', $this->plugin_name ); ?></p>
+		<p><?php _e( 'The key is assigned to a Wordpress user with sufficient rights. It is not necessary to know the user\'s data such as name or password since all communication is done from the REST API.', $this->plugin_name ); ?></p>
+		<p><?php _e( 'This REST API key only needs to have read rights. Remember to take note of the consumer key and the consumer secret as it is only displayed during key creation.', $this->plugin_name ); ?></p>
+	</div>
+	<hr />
 	<p>
-		<a href="https://nic-app.com/nic-app-stock/" target="_blank"><?php _e( 'Contact us', $this->plugin_name )?></a> <?php _e( 'with any questions.', $this->plugin_name ); ?></p>
+		<a href="mailto:efraim@efraim.cat" > <?php _e( 'Contact us', $this->plugin_name )?></a> <?php _e( 'with any questions.', $this->plugin_name ); ?></p>
 </div>
