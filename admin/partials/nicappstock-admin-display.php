@@ -33,7 +33,9 @@
 	<hr />
 	<div id="nicappstock-info">
 		<p><?php _e( 'This plugin creates a relationship between the SKU of the local product of its variation and another product defined in another WooCommerce system and updates the local stock with which the supplier has.', $this->plugin_name ); ?></p>
-		<p><?php _e( 'The connection is made through the WooCommerce REST API. You need to have a REST API key on the provider\'s system. You can find information in this document on how to create the key.', $this->plugin_name ); ?></p>
+		<p><?php _e( 'The connection is made through the WooCommerce REST API. You need to have a REST API key on the provider\'s system. You can find information in this', $this->plugin_name ); ?>
+		<a href="https://docs.woocommerce.com/document/woocommerce-rest-api/" target="_blank"> <?php _e('document', $this->plugin_name)?> </a> 
+		<?php _e( 'on how to create the key.', $this->plugin_name ); ?></p>
 		<p><?php _e( 'The key is assigned to a Wordpress user with sufficient rights. It is not necessary to know the user\'s data such as name or password since all communication is done from the REST API.', $this->plugin_name ); ?></p>
 		<p><?php _e( 'This REST API key only needs to have read rights. Remember to take note of the consumer key and the consumer secret as it is only displayed during key creation.', $this->plugin_name ); ?></p>
 	</div>

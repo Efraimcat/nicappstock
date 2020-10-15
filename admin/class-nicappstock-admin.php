@@ -160,7 +160,7 @@ class Nicappstock_Admin {
 	            $type = 'error';
 	            $message = __( 'ERROR. Incorrect Interval', $this->plugin_name );
 	        }else{
-	            update_option( $this->plugin_name . '_ScheduleInterval', $_POST['NewScheduleInterval'] );
+	            update_option( $this->plugin_name . '_ScheduleInterval', sanitize_text_field($_POST['NewScheduleInterval'] ));
 	            add_filter( ‘cron_schedules’, array( $this, ‘nicappstock_cron_job_recurrence’ ) );
 	            wp_clear_scheduled_hook('nicappstockCronJob');
 	            wp_schedule_event(time(), 'nicappstockCronSchedule', 'nicappstockCronJob');
